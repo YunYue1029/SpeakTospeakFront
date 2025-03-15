@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF.js 內嵌 PDF 檢視器</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <style>
+        body {
+            text-align: center;
+        }
+        #pdf-container {
+            width: 80vw;
+            height: 80vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #eee;
+            overflow: hidden;
+            margin: auto;
+        }
+        canvas {
+            display: block;
+            max-width: 90%;
+            max-height: 90%;
+        }
+        .nav-buttons {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h2>PDF.js 內嵌 PDF 檢視器</h2>
+    <input type="file" id="file-input" accept="application/pdf">
+    <div id="pdf-container"></div>
+    <div class="nav-buttons">
+        <button id="prev-page">上一頁</button>
+        <span id="page-info"></span>
+        <button id="next-page">下一頁</button>
+        <button id="download-jpg">下載 JPG</button>
+    </div>
+
+    <script>
+        let pdfDoc = null;
+        let pageNum = 1;
+        let currentCanvas = null; // 存儲當前頁面的 Canvas
+
+        document.getElementById('file-input').addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const fileReader = new FileReader();
+                fileReader.onload = function() {
+                    const typedArray = new Uint8Array(this.result);
+                    loadPDF(typedArray);
+                };
+                fileReader.readAsArrayBuffer(file);
+            }
+        });
+
+        function loadPDF(pdfData) {
+            pdfjsLib.getDocument({ data: pdfData }).promise.then(pdf => {
+                pdfDoc = pdf;
+                pageNum = 1;
+                renderPage(pageNum);
+            });
+        }
+
+        function renderPage(num) {
+            pdfDoc.getPage(num).then(page => {
+                const container = document.getElementById('pdf-container');
+                container.innerHTML = '';
+                
+                const viewport = page.getViewport({ scale: 0.8 });
+                const scale = Math.min((window.innerWidth * 0.8) / viewport.width, (window.innerHeight * 0.8) / viewport.height);
+                const adjustedViewport = page.getViewport({ scale });
+                
+                const canvas = document.createElement('canvas');
+                const context = canvas.getContext('2d');
+                canvas.width = adjustedViewport.width;
+                canvas.height = adjustedViewport.height;
+                container.appendChild(canvas);
+                
+                const renderContext = {
+                    canvasContext: context,
+                    viewport: adjustedViewport
+                };
+                page.render(renderContext);
+
+                // 更新當前 Canvas
+                currentCanvas = canvas;
+                
+                document.getElementById('page-info').textContent = `第 ${num} 頁 / 共 ${pdfDoc.numPages} 頁`;
+            });
+        }
+
+        document.getElementById('prev-page').addEventListener('click', function() {
+            if (pageNum > 1) {
+                pageNum--;
+                renderPage(pageNum);
+            }
+        });
+
+        document.getElementById('next-page').addEventListener('click', function() {
+            if (pageNum < pdfDoc.numPages) {
+                pageNum++;
+                renderPage(pageNum);
+            }
+        });
+
+        document.getElementById('download-jpg').addEventListener('click', function() {
+            if (currentCanvas) {
+                const link = document.createElement('a');
+                link.href = currentCanvas.toDataURL('image/jpeg', 1.0);
+                link.download = `PDF_Page_${pageNum}.jpg`;
+                link.click();
+            } else {
+                alert('請先載入 PDF 並顯示頁面！');
+            }
+        });
+    </script>
+</body>
+</html>
