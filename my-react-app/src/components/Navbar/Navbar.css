@@ -1,0 +1,19 @@
+.navbar {
+    width: 100vw;               /* 滿版寬度 */
+    margin: 0; 
+    display: flex;
+    align-items: center;
+    padding: 1rem;
+    background-color: #282c34;
+    color: white;
+  }
+  
+  .navbar a {
+    margin-right: 1.5rem;
+    color: white;
+    text-decoration: none;
+  }
+  
+  .navbar a:hover {
+    text-decoration: underline;
+  }
