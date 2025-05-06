@@ -2,9 +2,16 @@ import React, { useState, useRef } from 'react';
 
 const AudioTest: React.FC = () => {
   const [text, setText] = useState('');
-  const [audioResult, setAudioResult] = useState('');
+  //const [audioResult, setAudioResult] = useState('');
+  const [spoken_text, setSpokenText] = useState('');
+  const [compare_result, setCompareResult] = useState('');
+  const [correction, setCorrection] = useState('');
+  const [accuracy, setAccuracy] = useState('');
+  const [suggestion, setSuggestion] = useState('');
   const [isRecording, setRecording] = useState(false);
   const [statusText, setStatusText] = useState('尚未開始');
+  const [ttsAudioUrl, setTtsAudioUrl] = useState<string | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -93,6 +100,7 @@ const AudioTest: React.FC = () => {
   const uploadAudio = async (audioBlob: Blob) => {
     const formData = new FormData();
     formData.append('file', audioBlob, 'recording.wav');
+    formData.append('inputText', text);
 
     try {
       const response = await fetch('http://localhost:8888/api/agent/audioTest', {
@@ -100,36 +108,166 @@ const AudioTest: React.FC = () => {
         body: formData,
       });
       const result = await response.json();
-      setAudioResult(JSON.stringify(result, null, 2));
+
+      const parsed = typeof result.reply === 'string'
+      ? JSON.parse(result.reply.content?.replace(/```json\s*|\s*```/g, '') || '{}')
+      : result;
+
+      const {
+        spoken_text = '',
+        compare_result = '',
+        correction = '',
+        accuracy = '',
+        suggestion = ''
+      } = parsed;
+
+      setSpokenText(String(spoken_text));
+      setCompareResult(String(compare_result));
+      setCorrection(String(correction));
+      setAccuracy(String(accuracy));
+      setSuggestion(String(suggestion));
     } catch (error) {
       console.error('上傳失敗:', error);
-      setAudioResult('上傳失敗');
+      setSuggestion('上傳失敗，請檢查網路連線或伺服器狀態。');
+    }
+  };
+
+  const handleTextToSpeech = async () => {
+    setIsGenerating(true);
+    try {
+      const response = await fetch('http://localhost:8888/api/TTS/textToSpeachSlower', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+  
+      if (!response.ok) throw new Error('TTS 請求失敗');
+  
+      const blob = await response.blob();
+      const audioUrl = URL.createObjectURL(blob);
+      setTtsAudioUrl(audioUrl);
+    } catch (err) {
+      console.error('TTS 播放錯誤:', err);
+      setSuggestion('無法朗讀文字，請確認後端狀態。');
+    } finally {
+      setIsGenerating(false);
     }
   };
 
   return (
     <div style={{ display: 'flex', height: '100vh' }}>
-      <div style={{ flex: 1, padding: '20px', borderRight: '1px solid #ccc' }}>
+      <div style={{ flex: 1, padding: '20px', borderRight: '1px solid #ccc', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
         <h2>輸入區</h2>
         <textarea
-          style={{ width: '100%', height: '90%' }}
+          style={{
+          width: '90%',
+          height: '60%',
+          fontSize: '1.2rem',
+          padding: '10px',
+          border: '1px solid #999',
+          borderRadius: '6px',
+          resize: 'none',
+          }}
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="請輸入內容..."
         />
+        <div style={{ marginTop: '20px', width: '100%' ,flexDirection: 'row' ,display: 'flex' ,padding: '10px' }}>
+          <button
+            onClick={handleTextToSpeech}
+            disabled={isGenerating || !text.trim()}
+            style={{
+              padding: '10px',
+              fontSize: '1rem',
+              cursor: 'pointer',
+              height: '50px',
+              width: '40%',
+              marginRight: '20px',
+              backgroundColor: isGenerating ? '#dc3545' : '#007bff',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '4px',
+            }}
+          >
+            {isGenerating ? '生成中...' : '生成語音'}
+          </button>
+            {ttsAudioUrl && (
+              <div style={{ width: '200px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                <audio controls src={ttsAudioUrl}/>
+              </div>
+            )}
+        </div>
       </div>
       <div style={{ flex: 1, padding: '20px' }}>
-        <h2>右側區域</h2>
+        <h2>錄音區</h2>
         <div style={{ marginBottom: '20px' }}>
-          <label>錄音文字顯示：</label>
+          <label style={{ fontSize: '1.2rem', marginBottom: '10px' }}>你的錄音：</label>
           <textarea
             readOnly
-            value={audioResult}
-            style={{ width: '100%', height: '100px', backgroundColor: '#f5f5f5', resize: 'none' }}
-          />
+            value={spoken_text}
+            style={{
+                width: '95%',
+                height: '100px',
+                fontSize: '1.1rem',
+                padding: '10px',
+                backgroundColor: '#f5f5f5',
+                border: '1px solid #ccc',
+                borderRadius: '6px',
+                resize: 'none'
+            }}
+            />
+        </div>
+        <div style={{ marginBottom: '20px' }}>
+          <label style={{ fontSize: '1.2rem', marginBottom: '10px' }}>錄音比較：</label>
+          <textarea
+            readOnly
+            value={compare_result}
+            style={{
+                width: '95%',
+                height: '100px',
+                fontSize: '1.1rem',
+                padding: '10px',
+                backgroundColor: '#f5f5f5',
+                border: '1px solid #ccc',
+                borderRadius: '6px',
+                resize: 'none'
+            }}
+            />
+        </div>
+        <div style={{ marginBottom: '20px' }}>
+          <label style={{ fontSize: '1.2rem', marginBottom: '10px' }}>建議：</label>
+          <textarea
+            readOnly
+            value={suggestion}
+            style={{
+                width: '95%',
+                height: '100px',
+                fontSize: '1.1rem',
+                padding: '10px',
+                backgroundColor: '#f5f5f5',
+                border: '1px solid #ccc',
+                borderRadius: '6px',
+                resize: 'none'
+            }}
+            />
+        </div>
+        <div style={{ marginBottom: '10px', fontSize: '1.1rem' }}>
+          <h4>準確率：</h4>{accuracy}
+          <h4>修正單字：</h4>{correction}
         </div>
         <div>
-          <button onClick={isRecording ? stopRecording : startRecording}>
+          <button onClick={isRecording ? stopRecording : startRecording}
+            style={{
+              padding: '10px',
+              fontSize: '1rem',
+              cursor: 'pointer',
+              height: '50px',
+              width: '40%',
+              backgroundColor: isRecording ? '#dc3545' : '#007bff',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '4px',
+            }}>
             {isRecording ? '停止錄音' : '開始錄音'}
           </button>
           <p style={{ marginTop: '10px' }}>錄音狀態：{statusText}</p>
