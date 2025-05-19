@@ -1,42 +1,60 @@
 import React, { useRef, useState, useEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
+import { useLocation } from "react-router-dom";
 import 'pdfjs-dist/build/pdf.worker.entry';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
+type SentenceResult = {
+  spoken_text: string;
+  differences: string[];
+  accuracy: string;
+  suggestion: string;
+  audioUrl?: string;
+};
+
+type ResultsByPage = Record<number, Record<number, SentenceResult>>;
+
 const PDFTest: React.FC = () => {
+  const location = useLocation();
+  const pdfBuffer: Uint8Array | undefined = location.state?.pdfBuffer;
+  const translationsByPage = location.state?.translationsByPage || {};
+
   const [pdfDoc, setPdfDoc] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
   const [pageNum, setPageNum] = useState(1);
   const [pageCount, setPageCount] = useState(0);
-  const [notesByPage, setNotesByPage] = useState<Record<number, string>>({});
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   //recording part
-  const [recording, setRecording] = useState(false);
-  const [audioUrlsByPage, setAudioUrlsByPage] = useState<Record<number, string>>({});
+  const [isRecording, setRecording] = useState(false);
+  const [statusText, setStatusText] = useState('尚未開始');
+  const [audioUrlsByPage, setAudioUrlsByPage] = useState<Record<number, Record<number, string>>>({});
   const audioContextRef = useRef<AudioContext | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const mediaStreamSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
   const audioDataRef = useRef<Float32Array[]>([]);
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = function () {
-        const typedArray = new Uint8Array(this.result as ArrayBuffer);
-        loadPDF(typedArray);
-      };
-      reader.readAsArrayBuffer(file);
-    }
+  const [resultsByPage, setResultsByPage] = useState<ResultsByPage>({});
+  const [sentenceIndex, setSentenceIndex] = useState(0);
+
+  const currentResult: SentenceResult = resultsByPage[pageNum]?.[sentenceIndex] ?? {
+    spoken_text: '',
+    differences: [],
+    accuracy: '',
+    suggestion: '',
+    audioUrl: '',
   };
 
-  const loadPDF = async (data: Uint8Array) => {
-    const pdf = await pdfjsLib.getDocument({ data }).promise;
-    setPdfDoc(pdf);
-    setPageCount(pdf.numPages);
-    setPageNum(1);
-  };
+  useEffect(() => {
+    if (pdfBuffer) {
+      (async () => {
+        const pdf = await pdfjsLib.getDocument({ data: pdfBuffer }).promise;
+        setPdfDoc(pdf);
+        setPageCount(pdf.numPages);
+        setPageNum(1);
+      })();
+    }
+  }, [pdfBuffer]);
 
   const renderPage = async (num: number) => {
     if (!pdfDoc || !canvasRef.current) return;
@@ -84,7 +102,8 @@ const PDFTest: React.FC = () => {
     setRecording(true);
   };
   
-  const stopRecording = () => {
+  const stopRecording = async () => {
+    setStatusText('處理中...');
     scriptProcessorRef.current?.disconnect();
     mediaStreamSourceRef.current?.disconnect();
     mediaStreamRef.current?.getTracks().forEach(track => track.stop());
@@ -92,8 +111,17 @@ const PDFTest: React.FC = () => {
     const wavBlob = exportWAV(audioDataRef.current, audioContextRef.current!.sampleRate);
     const url = URL.createObjectURL(wavBlob);
   
-    setAudioUrlsByPage((prev) => ({ ...prev, [pageNum]: url }));
+    setAudioUrlsByPage(prev => ({
+      ...prev,
+      [pageNum]: {
+        ...(prev[pageNum] || {}),
+        [sentenceIndex]: url
+      }
+    }));
     setRecording(false);
+    setStatusText('上傳中...');
+    await uploadAudio(wavBlob);
+    setStatusText('完成');
   };
   
   function exportWAV(buffers: Float32Array[], sampleRate: number): Blob {
@@ -141,6 +169,82 @@ const PDFTest: React.FC = () => {
     return view.buffer;
   }
 
+  const uploadAudio = async (audioBlob: Blob) => {
+    const formData = new FormData();
+    formData.append('file', audioBlob, 'recording.wav');
+    formData.append('inputText', translationsByPage[pageNum]?.[sentenceIndex] || '');
+
+    try {
+      const response = await fetch('http://localhost:8888/api/agent/audioTest', {
+        method: 'POST',
+        body: formData,
+      });
+      const result = await response.json();
+
+      const parsed = typeof result.reply === 'string'
+        ? JSON.parse(result.reply.content?.replace(/```json\s*|\s*```/g, '') || '{}')
+        : result;
+
+      const {
+        spoken_text = '',
+        differences = '',
+        accuracy = '',
+        suggestion = ''
+      } = parsed;
+
+      const url = URL.createObjectURL(audioBlob);
+
+      setResultsByPage(prev => ({
+      ...prev,
+      [pageNum]: {
+        ...(prev[pageNum] || {}),
+        [sentenceIndex]: {
+          spoken_text: String(spoken_text),
+          differences: Array.isArray(differences) ? differences : [],
+          accuracy: String(accuracy),
+          suggestion: String(suggestion),
+          audioUrl: url,
+        }
+      }
+    }));
+    } catch (error) {
+      console.error('上傳失敗:', error);
+      setResultsByPage(prev => ({
+        ...prev,
+        [pageNum]: {
+          spoken_text: '',
+          differences: [],
+          accuracy: '',
+          suggestion: '上傳失敗，請檢查網路連線或伺服器狀態。',
+          audioUrl: '',
+        }
+      }));
+    }
+  };
+
+  function escapeHtml(text: string): string {
+    const map: Record<string, string> = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#039;',
+    };
+    return text.replace(/[&<>"']/g, m => map[m]);
+  }
+
+  const highlightText = (text: string, differences: string[]): string => {
+    let highlighted = escapeHtml(text);
+
+    for (const word of differences) {
+      const escapedWord = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`\\b(${escapedWord})\\b`, 'gi');
+      highlighted = highlighted.replace(regex, '<span style="color: red;">$1</span>');
+    }
+
+    return highlighted;
+  };
+
   return (
     <div style={{ padding: 20 }}>
       <div style={{ display: 'flex', gap: '30px',height: '100%', marginTop: 20 }}>
@@ -162,20 +266,6 @@ const PDFTest: React.FC = () => {
               style={{ width: '100%', height: 'auto', maxHeight: '70vh' }}
             />
           )}
-
-          <input
-            type="file"
-            accept="application/pdf"
-            onChange={handleFileChange}
-            style={{
-              marginTop: pdfDoc ? '10px' : '0px',
-              padding: '10px 10px',
-              fontSize: '1rem',
-              borderRadius: '6px',
-              border: '1px solid #ccc',
-              cursor: 'pointer',
-            }}
-          />
         </div>
 
         {/* 右側文字輸入 */}
@@ -189,28 +279,78 @@ const PDFTest: React.FC = () => {
             boxShadow: '0 0 5px rgba(0,0,0,0.1)',
             display: 'flex',
             flexDirection: 'column',
-            textAlign: 'center',
           }}
         >
-          <h3>輸入你的簡報</h3>
-          <p style={{ fontSize: '0.9rem', color: '#666', marginTop: '-10px', marginBottom: '10px' }}>
+          <h3 style={{ "textAlign": "center" }}>你的英文講稿</h3>
+          <p style={{ fontSize: '0.9rem', color: '#666', marginTop: '-10px', marginBottom: '10px' , "textAlign": "center"}}>
             第 {pageNum} 頁
           </p>
+          {Array.isArray(translationsByPage[pageNum]) && (
+            <div style={{ marginBottom: '10px' }}>
+              <label>選擇段落：</label>
+              <select
+                value={sentenceIndex}
+                onChange={(e) => setSentenceIndex(Number(e.target.value))}
+                style={{ padding: '5px', fontSize: '1rem' }}
+              >
+                {translationsByPage[pageNum].map((_, idx) => (
+                  <option key={idx} value={idx}>第 {idx + 1} 段</option>
+                ))}
+              </select>
+            </div>
+          )}
+          <label style={{ fontSize: '1.2rem', marginBottom: '10px' }}>錄音比較：</label>
           <textarea
-            style={{ 
-              width: '90%',
-              flex: 1, 
-              padding: '10px', 
-              fontSize: '1rem', 
-              marginBottom: '15px',
-              resize: 'none' }}
-            placeholder="在這裡輸入你的備註或筆記..."
-            value={notesByPage[pageNum] || ''}
-            onChange={(e) => {
-              const newText = e.target.value;
-              setNotesByPage((prev) => ({ ...prev, [pageNum]: newText }));
+            style={{
+                width: '95%',
+                height: '100px',
+                fontSize: '1.1rem',
+                padding: '10px',
+                backgroundColor: '#f5f5f5',
+                border: '1px solid #ccc',
+                borderRadius: '6px',
+                resize: 'none'
+            }}
+            readOnly
+            value={translationsByPage[pageNum]?.[sentenceIndex] || ''}
+          />
+          <div
+            style={{
+              width: '95%',
+              height: '100px',
+              fontSize: '1.1rem',
+              padding: '10px',
+              backgroundColor: '#f5f5f5',
+              border: '1px solid #ccc',
+              borderRadius: '6px',
+              overflowY: 'auto',
+              whiteSpace: 'pre-wrap',
+              resize: 'none'
+            }}
+            dangerouslySetInnerHTML={{
+              __html: highlightText(currentResult.spoken_text ?? '', currentResult.differences ?? [])
             }}
           />
+          <div style={{ marginBottom: '20px' ,textAlign: 'left'}}>
+            <label style={{ fontSize: '1.2rem', marginBottom: '10px' }}>建議：</label>
+            <textarea
+              readOnly
+              value={currentResult.suggestion}
+              style={{
+                  width: '95%',
+                  height: '100px',
+                  fontSize: '1.1rem',
+                  padding: '10px',
+                  backgroundColor: '#f5f5f5',
+                  border: '1px solid #ccc',
+                  borderRadius: '6px',
+                  resize: 'none'
+              }}
+              />
+          </div>
+          <div style={{ marginBottom: '10px', fontSize: '1.1rem', textAlign: 'left' }}>
+            <h4>發音準確率：</h4>{currentResult.accuracy}
+          </div>
           <div 
             style={{ 
               marginTop: '10px', 
@@ -223,29 +363,29 @@ const PDFTest: React.FC = () => {
             }}
           >
             {/* 錄音按鈕 */}
-            <div style={{ width: '200px' }}>
-              <button
-                onClick={recording ? stopRecording : startRecording}
+            <div style={{ width: '300px' }}>
+              <button onClick={isRecording ? stopRecording : startRecording}
                 style={{
                   padding: '10px',
                   fontSize: '1rem',
                   cursor: 'pointer',
-                  width: '90%',
-                  backgroundColor: recording ? '#dc3545' : '#007bff',
+                  height: '50px',
+                  width: '40%',
+                  backgroundColor: isRecording ? '#dc3545' : '#007bff',
                   color: '#fff',
                   border: 'none',
                   borderRadius: '4px',
-                }}
-              >
-                {recording ? '⏹ 停止錄音' : '🎙 開始錄音'}
+                }}>
+                {isRecording ? '停止錄音' : '開始錄音'}
               </button>
+              <p style={{ marginTop: '10px' }}>錄音狀態：{statusText}</p>
             </div>
             {/* 音軌 */}
             {audioUrlsByPage[pageNum] && (
-                <div style={{ width: '200px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                  <audio src={audioUrlsByPage[pageNum]} controls style={{ width: '100%' }} />
-                </div>
-              )}
+              <div style={{ width: '200px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                <audio src={audioUrlsByPage[pageNum][sentenceIndex]} controls style={{ width: '100%' }} />
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -4,7 +4,7 @@ const AudioTest: React.FC = () => {
   const [text, setText] = useState('');
   //const [audioResult, setAudioResult] = useState('');
   const [spoken_text, setSpokenText] = useState('');
-  const [compare_result, setCompareResult] = useState('');
+  const [differences, setDifferences] = useState<string[]>([]);
   const [correction, setCorrection] = useState('');
   const [accuracy, setAccuracy] = useState('');
   const [suggestion, setSuggestion] = useState('');
@@ -115,14 +115,14 @@ const AudioTest: React.FC = () => {
 
       const {
         spoken_text = '',
-        compare_result = '',
+        differences = '',
         correction = '',
         accuracy = '',
         suggestion = ''
       } = parsed;
 
       setSpokenText(String(spoken_text));
-      setCompareResult(String(compare_result));
+      setDifferences(Array.isArray(differences) ? differences : []);
       setCorrection(String(correction));
       setAccuracy(String(accuracy));
       setSuggestion(String(suggestion));
@@ -153,6 +153,18 @@ const AudioTest: React.FC = () => {
       setIsGenerating(false);
     }
   };
+
+  const highlightText = (text: string, differences: string[]): string => {
+  let highlighted = text;
+
+  for (const word of differences) {
+    const escapedWord = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`\\b(${escapedWord})\\b`, 'gi');
+    highlighted = highlighted.replace(regex, '<span style="color: red;">$1</span>');
+  }
+
+  return highlighted;
+};
 
   return (
     <div style={{ display: 'flex', height: '100vh' }}>
@@ -199,9 +211,9 @@ const AudioTest: React.FC = () => {
         </div>
       </div>
       <div style={{ flex: 1, padding: '20px' }}>
-        <h2>錄音區</h2>
+        <h2>練習</h2>
         <div style={{ marginBottom: '20px' }}>
-          <label style={{ fontSize: '1.2rem', marginBottom: '10px' }}>你的錄音：</label>
+          <label style={{ fontSize: '1.2rem', marginBottom: '10px' }}>錄音比較：</label>
           <textarea
             readOnly
             value={spoken_text}
@@ -216,13 +228,8 @@ const AudioTest: React.FC = () => {
                 resize: 'none'
             }}
             />
-        </div>
-        <div style={{ marginBottom: '20px' }}>
-          <label style={{ fontSize: '1.2rem', marginBottom: '10px' }}>錄音比較：</label>
-          <textarea
-            readOnly
-            value={compare_result}
-            style={{
+            <div
+              style={{
                 width: '95%',
                 height: '100px',
                 fontSize: '1.1rem',
@@ -230,8 +237,10 @@ const AudioTest: React.FC = () => {
                 backgroundColor: '#f5f5f5',
                 border: '1px solid #ccc',
                 borderRadius: '6px',
-                resize: 'none'
-            }}
+                overflowY: 'auto',
+                whiteSpace: 'pre-wrap',
+              }}
+              dangerouslySetInnerHTML={{ __html: highlightText(spoken_text, differences) }}
             />
         </div>
         <div style={{ marginBottom: '20px' }}>

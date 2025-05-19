@@ -7,14 +7,14 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.j
 
 const SetSpeechPage: React.FC = () => {
   const navigate = useNavigate();
-
+  const [pdfBuffer, setPdfBuffer] = useState<Uint8Array | null>(null);
   const [pdfDoc, setPdfDoc] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
   const [pageNum, setPageNum] = useState(1);
   const [pageCount, setPageCount] = useState(0);
   const [notesByPage, setNotesByPage] = useState<Record<number, string>>({});
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  const [translationsByPage, setTranslationsByPage] = useState<Record<number, string>>({});
+  const [translationsByPage, setTranslationsByPage] = useState<Record<number, string[]>>({});
   //recording part
   const [recording, setRecording] = useState(false);
   const [audioUrlsByPage, setAudioUrlsByPage] = useState<Record<number, string>>({});
@@ -25,16 +25,18 @@ const SetSpeechPage: React.FC = () => {
   const audioDataRef = useRef<Float32Array[]>([]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = function () {
-        const typedArray = new Uint8Array(this.result as ArrayBuffer);
-        loadPDF(typedArray);
-      };
-      reader.readAsArrayBuffer(file);
-    }
-  };
+  const file = event.target.files?.[0];
+  if (file) {
+    const reader = new FileReader();
+    reader.onload = function () {
+      const typedArray = new Uint8Array(this.result as ArrayBuffer);
+
+      setPdfBuffer(typedArray);
+      loadPDF(typedArray);
+    };
+    reader.readAsArrayBuffer(file);
+  }
+};
 
   const loadPDF = async (data: Uint8Array) => {
     const pdf = await pdfjsLib.getDocument({ data }).promise;
@@ -146,52 +148,6 @@ const SetSpeechPage: React.FC = () => {
     return view.buffer;
   }
 
-  const collectPageData = async (): Promise<FormData[]> => {
-    if (!pdfDoc) return [];
-
-    const result: FormData[] = [];
-
-    for (let i = 1; i <= pageCount; i++) {
-      const page = await pdfDoc.getPage(i);
-      const canvas = document.createElement("canvas");
-      const viewport = page.getViewport({ scale: 2 });
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-
-      await page.render({ canvasContext: canvas.getContext("2d")!, viewport }).promise;
-
-      const blob: Blob = await new Promise((resolve) => canvas.toBlob((b) => resolve(b!), "image/png"));
-
-      const formData = new FormData();
-      formData.append("pageNum", i.toString());
-      formData.append("note", notesByPage[i] || "");
-      formData.append("pageImage", blob, `page-${i}.png`);
-
-      result.push(formData);
-    }
-
-    return result;
-  };
-
-  const handleSubmitAll = async () => {
-    const allPageData = await collectPageData();
-
-    for (let formData of allPageData) {
-      try {
-        const res = await fetch("http://localhost:8888/api/setPDF/uploadPage", {
-          method: "POST",
-          body: formData,
-        });
-
-        if (!res.ok) throw new Error(`上傳失敗: ${res.status}`);
-      } catch (err) {
-        console.error("❌ 發送失敗", err);
-      }
-    }
-
-    alert("✅ 所有頁面資料已送出！");
-  };
-
   const handleCompleteCurrentPage = async () => {
     if (!pdfDoc) return;
     
@@ -220,9 +176,13 @@ const SetSpeechPage: React.FC = () => {
       const cleanReply = result.reply.replace(/^"(.*)"$/, '$1');
 
       // 儲存翻譯結果
+      const translatedLines = (cleanReply
+        .split(/(?<=[.?!])\s+/) as string[])
+        .filter(line => line.trim() !== '');
+
       setTranslationsByPage((prev) => ({
         ...prev,
-        [pageNum]: cleanReply,
+        [pageNum]: translatedLines,
       }));
     } catch (err) {
       console.error(`❌ 第 ${pageNum} 頁翻譯失敗`, err);
@@ -421,23 +381,32 @@ const SetSpeechPage: React.FC = () => {
       )}
       <div style={{ textAlign: 'center', marginTop: '20px' }}>
         <button
-          onClick={handleSubmitAll}
-          style={{
-            padding: '12px 24px',
-            fontSize: '1.1rem',
-            backgroundColor: '#28a745',
-            color: 'white',
-            border: 'none',
-            borderRadius: '6px',
-            cursor: 'pointer',
+          onClick={() => {
+            const missingPages: number[] = [];
+
+            if (!pdfDoc || !pdfBuffer) {
+              alert("⚠️ 請先上傳一份 PDF 檔案！");
+              return;
+            }
+
+            for (let i = 1; i <= pageCount; i++) {
+              if (!translationsByPage[i] || translationsByPage[i].length === 0) {
+                missingPages.push(i);
+              }
+            }
+
+            if (missingPages.length > 0) {
+              alert(`⚠️ 以下頁面尚未完成翻譯：${missingPages.join(", ")}，請先完成再繼續。`);
+              return;
+            }
+
+            navigate("/PDFTest", {
+              state: {
+                pdfBuffer,
+                translationsByPage,
+              },
+            });
           }}
-        >
-          📤 送出所有頁面資料
-        </button>
-      </div>
-      <div style={{ textAlign: 'center', marginTop: '20px' }}>
-        <button
-          onClick={() => navigate("/PDFTest")}
           style={{
             padding: '10px 20px',
             fontSize: '1rem',
