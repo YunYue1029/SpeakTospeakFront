@@ -9,7 +9,6 @@ function Navbar() {
       <Link to="/SetSpeech" style={{ color: 'white', marginRight: '1rem' }}>開始</Link>
       <Link to="/audiotest" style={{ color: 'white', marginRight: '1rem' }}>語音測試</Link>
       <Link to="/about" style={{ color: 'white' }}>關於</Link>
-      <Link to="/pdf" style={{ color: 'white', marginLeft: '2rem' }}>PDF測試</Link>
     </nav>
   );
 }

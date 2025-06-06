@@ -91,16 +91,39 @@ const SetSpeechPage: React.FC = () => {
     setRecording(true);
   };
   
-  const stopRecording = () => {
+  const stopRecording = async () => {
     scriptProcessorRef.current?.disconnect();
     mediaStreamSourceRef.current?.disconnect();
     mediaStreamRef.current?.getTracks().forEach(track => track.stop());
-  
+
     const wavBlob = exportWAV(audioDataRef.current, audioContextRef.current!.sampleRate);
     const url = URL.createObjectURL(wavBlob);
-  
     setAudioUrlsByPage((prev) => ({ ...prev, [pageNum]: url }));
     setRecording(false);
+
+    const formData = new FormData();
+    formData.append("file", wavBlob, "recording.wav");
+
+    try {
+      const res = await fetch("http://localhost:8000/audioToText", {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) throw new Error(`錄音上傳失敗: ${res.status}`);
+      const result = await res.json();
+
+      console.log("語音轉文字成功，頁面：", pageNum);
+      console.log("結果：", result.transcript);
+
+      // ✅ 將結果填入 notesByPage 對應頁
+      setNotesByPage((prev) => ({
+        ...prev,
+        [pageNum]: result.transcript,
+      }));
+
+    } catch (error) {
+      console.error("錄音上傳失敗:", error);
+    }
   };
   
   function exportWAV(buffers: Float32Array[], sampleRate: number): Blob {
@@ -177,7 +200,7 @@ const SetSpeechPage: React.FC = () => {
 
       // 儲存翻譯結果
       const translatedLines = (cleanReply
-        .split(/(?<=[.?!])\s+/) as string[])
+        .split(/\n{2,}/) as string[])
         .filter(line => line.trim() !== '');
 
       setTranslationsByPage((prev) => ({
@@ -191,7 +214,7 @@ const SetSpeechPage: React.FC = () => {
     if (pageNum < pageCount) {
       setPageNum(pageNum + 1);
     } else {
-      alert("✅ 所有頁面皆已完成！");
+      alert("✅ 所有頁面皆已完成！稍等一下翻譯結果會顯示在右側區域。");
     }
   };
 
@@ -347,7 +370,7 @@ const SetSpeechPage: React.FC = () => {
         style={{
           marginTop: 30,
           textAlign: 'center',
-          fontSize: '1.2rem', // 放大整體文字（包含中間頁碼資訊）
+          fontSize: '1.2rem',
         }}
       >
         <button

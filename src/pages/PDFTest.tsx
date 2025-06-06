@@ -37,6 +37,9 @@ const PDFTest: React.FC = () => {
   const [resultsByPage, setResultsByPage] = useState<ResultsByPage>({});
   const [sentenceIndex, setSentenceIndex] = useState(0);
 
+  const [ttsAudioUrl, setTtsAudioUrl] = useState<string | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+
   const currentResult: SentenceResult = resultsByPage[pageNum]?.[sentenceIndex] ?? {
     spoken_text: '',
     differences: [],
@@ -245,6 +248,27 @@ const PDFTest: React.FC = () => {
     return highlighted;
   };
 
+  const handleTextToSpeech = async () => {
+    setIsGenerating(true);
+    try {
+      const response = await fetch('http://localhost:8888/api/TTS/textToSpeachSlower', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text : translationsByPage[pageNum]?.[sentenceIndex] || '' }),
+      });
+  
+      if (!response.ok) throw new Error('TTS 請求失敗');
+  
+      const blob = await response.blob();
+      const audioUrl = URL.createObjectURL(blob);
+      setTtsAudioUrl(audioUrl);
+    } catch (err) {
+      console.error('TTS 播放錯誤:', err);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   return (
     <div style={{ padding: 20 }}>
       <div style={{ display: 'flex', gap: '30px',height: '100%', marginTop: 20 }}>
@@ -266,7 +290,45 @@ const PDFTest: React.FC = () => {
               style={{ width: '100%', height: 'auto', maxHeight: '70vh' }}
             />
           )}
+          <div
+          style={{
+            width: '100%',
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '10px',
+            backgroundColor: '#f0f0f0',
+            borderRadius: '8px',
+          }}
+        >
+          <button
+            onClick={handleTextToSpeech}
+            disabled={isGenerating || !translationsByPage[pageNum]?.[sentenceIndex].trim()}
+            style={{
+              padding: '10px',
+              fontSize: '1rem',
+              cursor: 'pointer',
+              height: '50px',
+              width: '40%',
+              marginRight: '20px',
+              backgroundColor: isGenerating ? '#dc3545' : '#007bff',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '4px',
+            }}
+          >
+            {isGenerating ? '生成中...' : '生成語音'}
+          </button>
+            {ttsAudioUrl && (
+              <div style={{ width: '200px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                <audio controls src={ttsAudioUrl}/>
+              </div>
+            )}
         </div>
+        </div>
+        
 
         {/* 右側文字輸入 */}
         <div
@@ -300,20 +362,6 @@ const PDFTest: React.FC = () => {
             </div>
           )}
           <label style={{ fontSize: '1.2rem', marginBottom: '10px' }}>錄音比較：</label>
-          <textarea
-            style={{
-                width: '95%',
-                height: '100px',
-                fontSize: '1.1rem',
-                padding: '10px',
-                backgroundColor: '#f5f5f5',
-                border: '1px solid #ccc',
-                borderRadius: '6px',
-                resize: 'none'
-            }}
-            readOnly
-            value={translationsByPage[pageNum]?.[sentenceIndex] || ''}
-          />
           <div
             style={{
               width: '95%',
@@ -328,8 +376,22 @@ const PDFTest: React.FC = () => {
               resize: 'none'
             }}
             dangerouslySetInnerHTML={{
-              __html: highlightText(currentResult.spoken_text ?? '', currentResult.differences ?? [])
+              __html: highlightText(translationsByPage[pageNum]?.[sentenceIndex] || '', currentResult.differences)
             }}
+          />
+          <textarea
+            style={{
+                width: '95%',
+                height: '100px',
+                fontSize: '1.1rem',
+                padding: '10px',
+                backgroundColor: '#f5f5f5',
+                border: '1px solid #ccc',
+                borderRadius: '6px',
+                resize: 'none'
+            }}
+            readOnly
+            value={currentResult.spoken_text || '你的錄音結果將顯示在這裡。'}
           />
           <div style={{ marginBottom: '20px' ,textAlign: 'left'}}>
             <label style={{ fontSize: '1.2rem', marginBottom: '10px' }}>建議：</label>
@@ -395,7 +457,7 @@ const PDFTest: React.FC = () => {
         style={{
           marginTop: 30,
           textAlign: 'center',
-          fontSize: '1.2rem', // 放大整體文字（包含中間頁碼資訊）
+          fontSize: '1.2rem',
         }}
       >
         <button
