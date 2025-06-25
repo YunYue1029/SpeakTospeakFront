@@ -8,6 +8,7 @@ function Navbar() {
       <Link to="/" style={{ color: 'white', marginRight: '1rem' }}>首頁</Link>
       <Link to="/SetSpeech" style={{ color: 'white', marginRight: '1rem' }}>開始</Link>
       <Link to="/audiotest" style={{ color: 'white', marginRight: '1rem' }}>語音測試</Link>
+      <Link to="/rehearsals" style={{ color: 'white', marginRight: '1rem' }}>自主練習</Link>
       <Link to="/about" style={{ color: 'white' }}>關於</Link>
     </nav>
   );

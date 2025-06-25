@@ -7,6 +7,7 @@ import Audio from './pages/Audio';
 import SetSpeech from './pages/SetSpeech';
 import AudioTest from './pages/audioTest';
 import PDFTest from './pages/PDFTest';
+import Rehearsals from './pages/Rehearsals';
 
 function App() {
   return (
@@ -19,6 +20,7 @@ function App() {
         <Route path="/setspeech" element={<SetSpeech />} />
         <Route path="/audiotest" element={<AudioTest />} />
         <Route path="/PDFTest" element={<PDFTest />} />
+        <Route path="/rehearsals" element={<Rehearsals />} />
       </Routes>
     </BrowserRouter>
   );
