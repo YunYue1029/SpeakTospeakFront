@@ -198,18 +198,18 @@ const PDFTest: React.FC = () => {
       const url = URL.createObjectURL(audioBlob);
 
       setResultsByPage(prev => ({
-      ...prev,
-      [pageNum]: {
-        ...(prev[pageNum] || {}),
-        [sentenceIndex]: {
-          spoken_text: String(spoken_text),
-          differences: Array.isArray(differences) ? differences : [],
-          accuracy: String(accuracy),
-          suggestion: String(suggestion),
-          audioUrl: url,
+        ...prev,
+        [pageNum]: {
+          ...(prev[pageNum] || {}),
+          [sentenceIndex]: {
+            spoken_text: String(spoken_text),
+            differences: Array.isArray(differences) ? differences : [],
+            accuracy: String(accuracy),
+            suggestion: String(suggestion),
+            audioUrl: url,
+          }
         }
-      }
-    }));
+      }));
     } catch (error) {
       console.error('上傳失敗:', error);
       setResultsByPage(prev => ({
