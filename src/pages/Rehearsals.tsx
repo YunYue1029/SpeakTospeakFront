@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import 'pdfjs-dist/build/pdf.worker.entry';
+import WaveSurfer from 'wavesurfer.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
@@ -34,6 +35,29 @@ const Rehearsals: React.FC = () => {
     suggestion: '',
     differences: [],
   };
+
+  const waveformRef = useRef<HTMLDivElement | null>(null);
+  const wavesurferRef = useRef<WaveSurfer | null>(null);
+
+  useEffect(() => {
+    if (!audioUrlsByPage[pageNum]) return;
+
+    const wavesurfer = WaveSurfer.create({
+      container: waveformRef.current!,
+      waveColor: '#ccc',
+      progressColor: '#007bff',
+      cursorColor: '#000',
+      barWidth: 2,
+      height: 60,
+    });
+
+    wavesurfer.load(audioUrlsByPage[pageNum]);
+    wavesurferRef.current = wavesurfer;
+
+    return () => {
+      wavesurfer.destroy();
+    };
+  }, [audioUrlsByPage, pageNum]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -230,19 +254,51 @@ const Rehearsals: React.FC = () => {
             />
           )}
 
-          <input
-            type="file"
-            accept="application/pdf"
-            onChange={handleFileChange}
-            style={{
-              marginTop: pdfDoc ? '10px' : '0px',
-              padding: '10px 10px',
-              fontSize: '1rem',
-              borderRadius: '6px',
-              border: '1px solid #ccc',
-              cursor: 'pointer',
-            }}
-          />
+          {!pdfDoc && (
+            <input
+              type="file"
+              accept="application/pdf"
+              onChange={handleFileChange}
+              style={{
+                marginTop: '10px',
+                padding: '10px 10px',
+                fontSize: '1rem',
+                borderRadius: '6px',
+                border: '1px solid #ccc',
+                cursor: 'pointer',
+              }}
+            />
+          )}
+
+          <div style={{ display: 'flex', gap: '30px',width: '100%', marginTop: 20, background: 'white'}}>
+            {/* 音軌 */}
+            {audioUrlsByPage[pageNum] && (
+              <div
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                }}
+              >
+                <button
+                  onClick={() => wavesurferRef.current?.playPause()}
+                  style={{
+                    marginTop: '10px',
+                    padding: '6px 14px',
+                    fontSize: '0.9rem',
+                    cursor: 'pointer',
+                    backgroundColor: '#28a745',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                  }}
+                >
+                  ▶️ 播放 / 暫停
+                </button>
+                <div ref={waveformRef} style={{ width: '80%', height: '60px', marginTop: '10px' }} />
+              </div>
+            )}
+          </div>
         </div>
 
         <div
@@ -342,12 +398,7 @@ const Rehearsals: React.FC = () => {
                 {recording ? '⏹ 停止錄音' : '🎙 開始錄音'}
               </button>
             </div>
-            {/* 音軌 */}
-            {audioUrlsByPage[pageNum] && (
-                <div style={{ width: '200px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                  <audio src={audioUrlsByPage[pageNum]} controls style={{ width: '100%' }} />
-                </div>
-              )}
+            
           </div>
         </div>
       </div>
